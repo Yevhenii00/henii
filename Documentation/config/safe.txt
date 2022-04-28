@@ -26,3 +26,11 @@ directory was listed in the `safe.directory` list. If `safe.directory=*`
 is set in system config and you want to re-enable this protection, then
 initialize your list with an empty value before listing the repositories
 that you deem safe.
++
+When git tries to check for ownership of git repositories it will obviously
+use the user that is being used to run git itself, but if git is running
+as root, it will first check if it might had been started through `sudo`,
+and if that is the case, will use the user id that invoked sudo instead.
+If that is not what you would prefer and want git to instead only trust
+repositories that are owned by root, then you should remove the `SUDO_UID`
+variable from root's environment.
