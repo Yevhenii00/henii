@@ -522,10 +522,10 @@ static struct stage_data *insert_stage_data(struct repository *r,
  */
 static struct string_list *get_unmerged(struct index_state *istate)
 {
-	struct string_list *unmerged = xcalloc(1, sizeof(struct string_list));
+	struct string_list *unmerged = xmalloc(sizeof(struct string_list));
 	int i;
 
-	unmerged->strdup_strings = 1;
+	string_list_init_dup(unmerged);
 
 	/* TODO: audit for interaction with sparse-index. */
 	ensure_full_index(istate);
@@ -1160,6 +1160,7 @@ static int find_first_merges(struct repository *repo,
 	}
 
 	object_array_clear(&merges);
+	release_revisions(&revs);
 	return result->nr;
 }
 
@@ -3806,6 +3807,7 @@ int merge_recursive_generic(struct merge_options *opt,
 			    const struct object_id *merge,
 			    int num_merge_bases,
 			    const struct object_id **merge_bases,
+			    recursive_merge_fn_t merge_fn,
 			    struct commit **result)
 {
 	int clean;
@@ -3829,8 +3831,7 @@ int merge_recursive_generic(struct merge_options *opt,
 	}
 
 	repo_hold_locked_index(opt->repo, &lock, LOCK_DIE_ON_ERROR);
-	clean = merge_recursive(opt, head_commit, next_commit, ca,
-				result);
+	clean = merge_fn(opt, head_commit, next_commit, ca, result);
 	if (clean < 0) {
 		rollback_lock_file(&lock);
 		return clean;

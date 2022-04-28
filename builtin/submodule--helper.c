@@ -292,7 +292,7 @@ static char *compute_rev_name(const char *sub_path, const char* object_id)
 
 	for (d = describe_argv; *d; d++) {
 		struct child_process cp = CHILD_PROCESS_INIT;
-		prepare_submodule_repo_env(&cp.env_array);
+		prepare_submodule_repo_env(&cp.env);
 		cp.dir = sub_path;
 		cp.git_cmd = 1;
 		cp.no_stderr = 1;
@@ -479,7 +479,7 @@ static void runcommand_in_submodule_cb(const struct cache_entry *list_item,
 	if (!is_submodule_populated_gently(path, NULL))
 		goto cleanup;
 
-	prepare_submodule_repo_env(&cp.env_array);
+	prepare_submodule_repo_env(&cp.env);
 
 	/*
 	 * For the purpose of executing <command> in the submodule,
@@ -499,12 +499,12 @@ static void runcommand_in_submodule_cb(const struct cache_entry *list_item,
 		char *toplevel = xgetcwd();
 		struct strbuf sb = STRBUF_INIT;
 
-		strvec_pushf(&cp.env_array, "name=%s", sub->name);
-		strvec_pushf(&cp.env_array, "sm_path=%s", path);
-		strvec_pushf(&cp.env_array, "displaypath=%s", displaypath);
-		strvec_pushf(&cp.env_array, "sha1=%s",
+		strvec_pushf(&cp.env, "name=%s", sub->name);
+		strvec_pushf(&cp.env, "sm_path=%s", path);
+		strvec_pushf(&cp.env, "displaypath=%s", displaypath);
+		strvec_pushf(&cp.env, "sha1=%s",
 			     oid_to_hex(ce_oid));
-		strvec_pushf(&cp.env_array, "toplevel=%s", toplevel);
+		strvec_pushf(&cp.env, "toplevel=%s", toplevel);
 
 		/*
 		 * Since the path variable was accessible from the script
@@ -513,7 +513,7 @@ static void runcommand_in_submodule_cb(const struct cache_entry *list_item,
 		 * on windows. And since environment variables are
 		 * case-insensitive in windows, it interferes with the
 		 * existing PATH variable. Hence, to avoid that, we expose
-		 * path via the args strvec and not via env_array.
+		 * path via the args strvec and not via env.
 		 */
 		sq_quote_buf(&sb, path);
 		strvec_pushf(&cp.args, "path=%s; %s",
@@ -536,7 +536,7 @@ static void runcommand_in_submodule_cb(const struct cache_entry *list_item,
 
 		cpr.git_cmd = 1;
 		cpr.dir = path;
-		prepare_submodule_repo_env(&cpr.env_array);
+		prepare_submodule_repo_env(&cpr.env);
 
 		strvec_pushl(&cpr.args, "--super-prefix", NULL);
 		strvec_pushf(&cpr.args, "%s/", displaypath);
@@ -766,7 +766,7 @@ static void status_submodule(const char *path, const struct object_id *ce_oid,
 {
 	char *displaypath;
 	struct strvec diff_files_args = STRVEC_INIT;
-	struct rev_info rev;
+	struct rev_info rev = REV_INFO_INIT;
 	int diff_files_result;
 	struct strbuf buf = STRBUF_INIT;
 	const char *git_dir;
@@ -833,7 +833,7 @@ static void status_submodule(const char *path, const struct object_id *ce_oid,
 
 		cpr.git_cmd = 1;
 		cpr.dir = path;
-		prepare_submodule_repo_env(&cpr.env_array);
+		prepare_submodule_repo_env(&cpr.env);
 
 		strvec_push(&cpr.args, "--super-prefix");
 		strvec_pushf(&cpr.args, "%s/", displaypath);
@@ -853,6 +853,7 @@ static void status_submodule(const char *path, const struct object_id *ce_oid,
 cleanup:
 	strvec_clear(&diff_files_args);
 	free(displaypath);
+	release_revisions(&rev);
 }
 
 static void status_submodule_cb(const struct cache_entry *list_item,
@@ -955,7 +956,7 @@ static char *verify_submodule_committish(const char *sm_path,
 
 	cp_rev_parse.git_cmd = 1;
 	cp_rev_parse.dir = sm_path;
-	prepare_submodule_repo_env(&cp_rev_parse.env_array);
+	prepare_submodule_repo_env(&cp_rev_parse.env);
 	strvec_pushl(&cp_rev_parse.args, "rev-parse", "-q", "--short", NULL);
 	strvec_pushf(&cp_rev_parse.args, "%s^0", committish);
 	strvec_push(&cp_rev_parse.args, "--");
@@ -996,7 +997,7 @@ static void print_submodule_summary(struct summary_cb *info, char *errmsg,
 
 		cp_log.git_cmd = 1;
 		cp_log.dir = p->sm_path;
-		prepare_submodule_repo_env(&cp_log.env_array);
+		prepare_submodule_repo_env(&cp_log.env);
 		strvec_pushl(&cp_log.args, "log", NULL);
 
 		if (S_ISGITLINK(p->mod_src) && S_ISGITLINK(p->mod_dst)) {
@@ -1113,7 +1114,7 @@ static void generate_submodule_summary(struct summary_cb *info,
 
 		cp_rev_list.git_cmd = 1;
 		cp_rev_list.dir = p->sm_path;
-		prepare_submodule_repo_env(&cp_rev_list.env_array);
+		prepare_submodule_repo_env(&cp_rev_list.env);
 
 		if (!capture_command(&cp_rev_list, &sb_rev_list, 0))
 			total_commits = atoi(sb_rev_list.buf);
@@ -1231,6 +1232,7 @@ static int compute_summary_module_list(struct object_id *head_oid,
 	struct strvec diff_args = STRVEC_INIT;
 	struct rev_info rev;
 	struct module_cb_list list = MODULE_CB_LIST_INIT;
+	int ret = 0;
 
 	strvec_push(&diff_args, get_diff_cmd(diff_cmd));
 	if (info->cached)
@@ -1256,11 +1258,13 @@ static int compute_summary_module_list(struct object_id *head_oid,
 			setup_work_tree();
 		if (read_cache_preload(&rev.diffopt.pathspec) < 0) {
 			perror("read_cache_preload");
-			return -1;
+			ret = -1;
+			goto cleanup;
 		}
 	} else if (read_cache() < 0) {
 		perror("read_cache");
-		return -1;
+		ret = -1;
+		goto cleanup;
 	}
 
 	if (diff_cmd == DIFF_INDEX)
@@ -1268,8 +1272,10 @@ static int compute_summary_module_list(struct object_id *head_oid,
 	else
 		run_diff_files(&rev, 0);
 	prepare_submodule_summary(info, &list);
+cleanup:
 	strvec_clear(&diff_args);
-	return 0;
+	release_revisions(&rev);
+	return ret;
 }
 
 static int module_summary(int argc, const char **argv, const char *prefix)
@@ -1414,7 +1420,7 @@ static void sync_submodule(const char *path, const char *prefix,
 
 		cpr.git_cmd = 1;
 		cpr.dir = path;
-		prepare_submodule_repo_env(&cpr.env_array);
+		prepare_submodule_repo_env(&cpr.env);
 
 		strvec_push(&cpr.args, "--super-prefix");
 		strvec_pushf(&cpr.args, "%s/", displaypath);
@@ -1819,7 +1825,7 @@ static int clone_submodule(struct module_clone_data *clone_data)
 		strvec_push(&cp.args, clone_data->path);
 
 		cp.git_cmd = 1;
-		prepare_submodule_repo_env(&cp.env_array);
+		prepare_submodule_repo_env(&cp.env);
 		cp.no_stdin = 1;
 
 		if(run_command(&cp))
@@ -2026,7 +2032,6 @@ struct update_data {
 	.references = STRING_LIST_INIT_DUP, \
 	.single_branch = -1, \
 	.max_jobs = 1, \
-	.warn_if_uninitialized = 1, \
 }
 
 static void next_submodule_warn_missing(struct submodule_update_clone *suc,
@@ -2295,7 +2300,7 @@ static int is_tip_reachable(const char *path, struct object_id *oid)
 	cp.no_stderr = 1;
 	strvec_pushl(&cp.args, "rev-list", "-n", "1", hex, "--not", "--all", NULL);
 
-	prepare_submodule_repo_env(&cp.env_array);
+	prepare_submodule_repo_env(&cp.env);
 
 	if (capture_command(&cp, &rev, GIT_MAX_HEXSZ + 1) || rev.len)
 		return 0;
@@ -2307,7 +2312,7 @@ static int fetch_in_submodule(const char *module_path, int depth, int quiet, str
 {
 	struct child_process cp = CHILD_PROCESS_INIT;
 
-	prepare_submodule_repo_env(&cp.env_array);
+	prepare_submodule_repo_env(&cp.env);
 	cp.git_cmd = 1;
 	cp.dir = xstrdup(module_path);
 
@@ -2364,7 +2369,7 @@ static int run_update_command(struct update_data *ud, int subforce)
 	strvec_push(&cp.args, oid);
 
 	cp.dir = xstrdup(ud->sm_path);
-	prepare_submodule_repo_env(&cp.env_array);
+	prepare_submodule_repo_env(&cp.env);
 	if (run_command(&cp)) {
 		switch (ud->update_strategy.type) {
 		case SM_UPDATE_CHECKOUT:
@@ -2630,7 +2635,7 @@ static int update_submodule(struct update_data *update_data)
 
 		cp.dir = update_data->sm_path;
 		cp.git_cmd = 1;
-		prepare_submodule_repo_env(&cp.env_array);
+		prepare_submodule_repo_env(&cp.env);
 		update_data_to_args(&next, &cp.args);
 
 		/* die() if child process die()'d */
@@ -2652,12 +2657,16 @@ static int update_submodules(struct update_data *update_data)
 {
 	int i, res = 0;
 	struct submodule_update_clone suc = SUBMODULE_UPDATE_CLONE_INIT;
+	struct run_process_parallel_opts run_opts = {
+		.tr2_category = "submodule",
+		.tr2_label = "parallel/update",
+	};
 
 	suc.update_data = update_data;
-	run_processes_parallel_tr2(suc.update_data->max_jobs, update_clone_get_next_task,
-				   update_clone_start_failure,
-				   update_clone_task_finished, &suc, "submodule",
-				   "parallel/update");
+	run_processes_parallel(suc.update_data->max_jobs,
+			       update_clone_get_next_task,
+			       update_clone_start_failure,
+			       update_clone_task_finished, &suc, &run_opts);
 
 	/*
 	 * We saved the output and put it out all at once now.
@@ -3123,9 +3132,9 @@ static void append_fetch_remotes(struct strbuf *msg, const char *git_dir_path)
 	struct strbuf sb_remote_out = STRBUF_INIT;
 
 	cp_remote.git_cmd = 1;
-	strvec_pushf(&cp_remote.env_array,
+	strvec_pushf(&cp_remote.env,
 		     "GIT_DIR=%s", git_dir_path);
-	strvec_push(&cp_remote.env_array, "GIT_WORK_TREE=.");
+	strvec_push(&cp_remote.env, "GIT_WORK_TREE=.");
 	strvec_pushl(&cp_remote.args, "remote", "-v", NULL);
 	if (!capture_command(&cp_remote, &sb_remote_out, 0)) {
 		char *next_line;
@@ -3209,7 +3218,7 @@ static int add_submodule(const struct add_data *add_data)
 		if (clone_submodule(&clone_data))
 			return -1;
 
-		prepare_submodule_repo_env(&cp.env_array);
+		prepare_submodule_repo_env(&cp.env);
 		cp.git_cmd = 1;
 		cp.dir = add_data->sm_path;
 		/*

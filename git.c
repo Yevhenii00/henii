@@ -25,7 +25,7 @@ struct cmd_struct {
 };
 
 const char git_usage_string[] =
-	N_("git [--version] [--help] [-C <path>] [-c <name>=<value>]\n"
+	N_("git [-v | --version] [-h | --help] [-C <path>] [-c <name>=<value>]\n"
 	   "           [--exec-path[=<path>]] [--html-path] [--man-path] [--info-path]\n"
 	   "           [-p | --paginate | -P | --no-pager] [--no-replace-objects] [--bare]\n"
 	   "           [--git-dir=<path>] [--work-tree=<path>] [--namespace=<name>]\n"
@@ -146,7 +146,8 @@ static int handle_options(const char ***argv, int *argc, int *envchanged)
 		 * commands can be written with "--" prepended
 		 * to make them look like flags.
 		 */
-		if (!strcmp(cmd, "--help") || !strcmp(cmd, "--version"))
+		if (!strcmp(cmd, "--help") || !strcmp(cmd, "-h") ||
+		    !strcmp(cmd, "--version") || !strcmp(cmd, "-v"))
 			break;
 
 		/*
@@ -491,7 +492,7 @@ static struct cmd_struct commands[] = {
 	{ "annotate", cmd_annotate, RUN_SETUP | NO_PARSEOPT },
 	{ "apply", cmd_apply, RUN_SETUP_GENTLY },
 	{ "archive", cmd_archive, RUN_SETUP_GENTLY },
-	{ "bisect--helper", cmd_bisect__helper, RUN_SETUP },
+	{ "bisect", cmd_bisect, RUN_SETUP },
 	{ "blame", cmd_blame, RUN_SETUP },
 	{ "branch", cmd_branch, RUN_SETUP | DELAY_PAGER_CONFIG },
 	{ "bugreport", cmd_bugreport, RUN_SETUP_GENTLY },
@@ -537,7 +538,7 @@ static struct cmd_struct commands[] = {
 	{ "format-patch", cmd_format_patch, RUN_SETUP },
 	{ "fsck", cmd_fsck, RUN_SETUP },
 	{ "fsck-objects", cmd_fsck, RUN_SETUP },
-	{ "fsmonitor--daemon", cmd_fsmonitor__daemon, RUN_SETUP },
+	{ "fsmonitor--daemon", cmd_fsmonitor__daemon, SUPPORT_SUPER_PREFIX | RUN_SETUP },
 	{ "gc", cmd_gc, RUN_SETUP },
 	{ "get-tar-commit-id", cmd_get_tar_commit_id, NO_PARSEOPT },
 	{ "grep", cmd_grep, RUN_SETUP_GENTLY },
@@ -564,7 +565,7 @@ static struct cmd_struct commands[] = {
 	{ "merge-recursive-ours", cmd_merge_recursive, RUN_SETUP | NEED_WORK_TREE | NO_PARSEOPT },
 	{ "merge-recursive-theirs", cmd_merge_recursive, RUN_SETUP | NEED_WORK_TREE | NO_PARSEOPT },
 	{ "merge-subtree", cmd_merge_recursive, RUN_SETUP | NEED_WORK_TREE | NO_PARSEOPT },
-	{ "merge-tree", cmd_merge_tree, RUN_SETUP | NO_PARSEOPT },
+	{ "merge-tree", cmd_merge_tree, RUN_SETUP },
 	{ "mktag", cmd_mktag, RUN_SETUP | NO_PARSEOPT },
 	{ "mktree", cmd_mktree, RUN_SETUP },
 	{ "multi-pack-index", cmd_multi_pack_index, RUN_SETUP },
@@ -893,8 +894,10 @@ int cmd_main(int argc, const char **argv)
 	argc--;
 	handle_options(&argv, &argc, NULL);
 	if (argc > 0) {
-		/* translate --help and --version into commands */
-		skip_prefix(argv[0], "--", &argv[0]);
+		if (!strcmp("--version", argv[0]) || !strcmp("-v", argv[0]))
+			argv[0] = "version";
+		else if (!strcmp("--help", argv[0]) || !strcmp("-h", argv[0]))
+			argv[0] = "help";
 	} else {
 		/* The user didn't specify a command; give them help */
 		commit_pager_choice();
